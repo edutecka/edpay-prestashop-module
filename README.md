@@ -1,51 +1,74 @@
-# Módulo de Pagamentos EDPay para PrestaShop (1.7 & 8.x)
+# EDPay PrestaShop Module
 
-[![Licença: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Versão PrestaShop](https://img.shields.io/badge/PrestaShop-1.7%20|%208.x-orange.svg)](https://prestashop.com)
-[![Multi-Gateway](https://img.shields.io/badge/EDPay-Multi--Gateway-0051FA.svg)](https://edpay.co.mz)
+Official EDPay integration preview for PrestaShop. This repository provides source code for a checkout payment option, hosted payment-link redirect, and webhook controller. Treat this module as beta: review and test it in a non-production shop before considering any live use. It is not represented as production-ready.
 
-Módulo oficial para aceitar pagamentos com a **EDPay** em lojas virtuais **PrestaShop**, suportando **M-Pesa**, **e-Mola**, **Cartões Visa / Mastercard** e **Transferência Bancária** em Meticais (MZN).
+## Requirements
 
----
+- PrestaShop 1.7 or later (the module declares a minimum of 1.7.0.0)
+- PHP with the `curl`, `json`, and `hash` extensions
+- EDPay public and private API keys, plus a webhook signing secret
+- HTTPS for the shop and webhook endpoint
 
-## 🚀 Recursos Principais
+## Install from source
 
-- Integração nativa com o fluxo de checkout standard e one-page checkout do PrestaShop.
-- Suporte a múltiplos canais de pagamento sem fricção.
-- Notificações de confirmação de pagamento instantâneas via Webhooks (HMAC-SHA256).
-- Atualização automática do estado da encomenda para `Pagamento Aceite` (`PS_OS_PAYMENT`).
-- Suporte integral ao ambiente Sandbox e Produção (Live).
+Clone the repository into the PrestaShop `modules` directory using the module's technical name, `edpay`:
 
----
-
-## 📦 Instalação
-
-1. Baixe o repositório como ficheiro `.zip` ou clone na pasta `/modules/edpay/` da sua loja PrestaShop:
-   ```bash
-   cd /var/www/prestashop/modules
-   git clone https://github.com/edutecka/edpay-prestashop-module.git edpay
-   ```
-2. No painel administrativo do PrestaShop, navegue até **Módulos > Gerenciador de Módulos**.
-3. Procure por **EDPay Multi-Gateway** e clique em **Instalar**.
-4. Clique em **Configurar**.
-
----
-
-## ⚙️ Configuração
-
-Insira as chaves de API obtidas no seu painel [EDPay](https://edpay.co.mz):
-- **Chave Pública**: `pk_live_...` (ou `pk_test_...` para testes)
-- **Chave Privada**: `sk_live_...`
-- **Segredo do Webhook**: `whsec_...`
-- **Modo Sandbox**: Ative para testes.
-
-### URL de Webhook no Painel EDPay:
-```
-https://sua-loja.co.mz/module/edpay/webhook
+```bash
+cd /path/to/prestashop/modules
+git clone https://github.com/edutecka/edpay-prestashop-module.git edpay
 ```
 
----
+In the PrestaShop back office, open **Modules > Module Manager**, find the EDPay module, install it, and open its configuration.
 
-## 📄 Licença
+## Configure and test checkout
 
-Distribuído sob licença MIT. Consulte `LICENSE` para detalhes adicionais.
+The module configuration accepts a public key (`pk_test_...` or `pk_live_...`), private key (`sk_test_...` or `sk_live_...`), webhook secret (`whsec_...`), and a Sandbox switch. Keep credentials private and use non-production credentials for testing.
+
+**Important implementation limitation:** although the configuration stores a Sandbox switch, the current code does not use it to select an API environment. Payment-link requests use the configured `EDPAY_API_URL`, initialized to `https://api-pay.edutecka.com`; there is no API URL field in the module configuration form. Verify the correct endpoint and environment with EDPay before testing, and do not send live credentials or customer orders until this behavior has been confirmed and reviewed.
+
+During checkout, the module creates a PrestaShop order in the Preparation state, then sends a payment-link request to `POST /v1/core/payment-links` with `X-EDPay-Public-Key`, `X-EDPay-Private-Key`, `Content-Type: application/json`, and an `Idempotency-Key`. The request includes the order amount (the module multiplies the PrestaShop total by 100), currency, order metadata, and success and cancel URLs. On a successful API response, it redirects to `data.hosted_url` or `data.checkout_url`.
+
+The current failure path returns the customer to checkout after the order has already been created in Preparation. Review pending orders after failed requests. The idempotency key includes the current time, so separate attempts do not reuse a stable key; do not rely on it to deduplicate retries.
+
+## Configure the webhook
+
+Register the following HTTPS callback in the EDPay dashboard under **Developers > Webhooks**, replacing the host with the shop's public domain:
+
+```text
+https://store.example/module/edpay/webhook
+```
+
+The controller reads the raw request body and `X-EDPay-Signature`, verifies a hexadecimal HMAC-SHA256 signature using the configured webhook secret, and changes an order to the PrestaShop Payment accepted state for `payment.succeeded` events whose data contains the `prestashop_order_id` metadata. Other event types do not change the order.
+
+**Security and reconciliation warnings:** the current controller skips signature verification if no webhook secret is configured, so configure a valid secret before enabling the callback. The implementation does not record processed event IDs or provide replay/deduplication protection; test duplicate notifications and reconcile orders against EDPay. Never treat the checkout return URL as proof of payment. Restrict access to the PrestaShop back office and configuration database because the module stores API credentials there.
+
+## Official documentation
+
+- [PrestaShop integration guide](https://docs-pay.edutecka.com/plugins/prestashop/)
+- [Payments API](https://docs-pay.edutecka.com/api/payments/)
+- [Webhooks](https://docs-pay.edutecka.com/api/webhooks/)
+- [SDK installation and integration guide](https://docs-pay.edutecka.com/sdks/)
+
+## License
+
+MIT (as declared in the module source).
+
+## Other official SDKs and plugins
+
+### SDKs
+
+- [JavaScript / TypeScript](https://github.com/edutecka/edpay-javascript-sdk)
+- [Python](https://github.com/edutecka/edpay-python-sdk)
+- [PHP](https://github.com/edutecka/edpay-php-sdk)
+- [Java](https://github.com/edutecka/edpay-java-sdk)
+- [.NET](https://github.com/edutecka/edpay-dot-net-sdk)
+
+### E-commerce integrations
+
+These are links to official integration repositories; some contain previews. Review each repository's status and implementation limitations before installing.
+
+- [WooCommerce (WordPress)](https://github.com/edutecka/edpay-woocommerce-plugin)
+- [Shopify](https://github.com/edutecka/edpay-shopify-app)
+- [Magento / Adobe Commerce](https://github.com/edutecka/edpay-magento2-module)
+- [OpenCart](https://github.com/edutecka/edpay-opencart-extension)
+- [WHMCS](https://github.com/edutecka/edpay-whmcs-gateway)
